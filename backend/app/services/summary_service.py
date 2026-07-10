@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.graph import graph
 from app.agents.preclean import preclean_updates
 from app.agents.state import GraphState
+from app.agents.validate_deterministic import normalize_blocker_text
 from app.core.config import get_settings
 from app.core.exceptions import IncompleteUpdatesError, NotFoundError
 from app.db.models.member import Member
@@ -93,7 +94,10 @@ class SummaryService:
                 "Summary generation failed — no parsed summary produced."
             )
 
-        degraded = final.status == "degraded"
+        degraded = final.status == "degraded" or (
+            final.parsed_summary.tldr
+            == "Auto-generated summary — AI validation unavailable."
+        )
         rendered = render_markdown(
             final.parsed_summary, target_date, degraded=degraded
         )

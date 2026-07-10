@@ -38,6 +38,16 @@ async def parser_node(state: GraphState | dict) -> dict:
         try:
             payload = json.loads(_extract_json(raw))
             summary = StandupSummary.model_validate(payload)
+            from app.agents.validate_deterministic import normalize_standup_summary
+
+            source_blockers = None
+            if state.sanitized_updates:
+                source_blockers = {
+                    m.name: m.blockers for m in state.sanitized_updates.members
+                }
+            summary = normalize_standup_summary(
+                summary, source_blockers=source_blockers
+            )
             return {"parsed_summary": summary}
         except (json.JSONDecodeError, ValueError) as exc:
             short_error = str(exc)[:200]

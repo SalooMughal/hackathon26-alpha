@@ -22,11 +22,13 @@ def preclean_text(text: str | None) -> str:
 
 def preclean_update(update: dict) -> dict:
     """Deterministic pre-clean for one member's raw update."""
+    from app.agents.validate_deterministic import normalize_blocker_text
+
     return {
         "name": preclean_text(update.get("name", "")),
         "yesterday": preclean_text(update.get("yesterday")),
         "today": preclean_text(update.get("today")),
-        "blockers": preclean_text(update.get("blockers") or ""),
+        "blockers": normalize_blocker_text(update.get("blockers")),
     }
 
 
