@@ -1,6 +1,4 @@
 # Environment secrets — never commit
-.env
-.env.*
 !.env.example
 
 # OS
@@ -18,3 +16,4 @@ __pycache__/
 # Node (frontend)
 node_modules/
 .next/
+config.bat
