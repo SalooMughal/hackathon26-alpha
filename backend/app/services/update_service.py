@@ -6,10 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy.exc import IntegrityError
 
-from app.core.exceptions import DuplicateUpdateError, NotFoundError
+from app.core.exceptions import DuplicateUpdateError, IncompleteUpdateError, NotFoundError
 from app.db.models.member import Member
 from app.db.models.update import Update
 from app.schemas.update import UpdateRead, UpdateUpsert, UpdatesListResponse
+from app.services.update_quality import validate_update_fields
 
 
 class UpdateService:
@@ -73,6 +74,15 @@ class UpdateService:
         body: UpdateUpsert,
         target_date: date,
     ) -> UpdateRead:
+        quality_issues = validate_update_fields(
+            body.yesterday, body.today, body.blockers
+        )
+        if quality_issues:
+            detail = " ".join(quality_issues)
+            raise IncompleteUpdateError(
+                f"{member.name}'s update needs a little more detail before saving. {detail}"
+            )
+
         row = await self._get_existing(member_id, target_date)
         if row:
             row.yesterday = body.yesterday

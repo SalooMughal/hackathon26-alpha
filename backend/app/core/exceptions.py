@@ -28,6 +28,13 @@ class IncompleteUpdatesError(AppError):
     code = "incomplete_updates"
 
 
+class IncompleteUpdateError(AppError):
+    """Single member's standup fields failed lenient quality checks."""
+
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    code = "incomplete_update"
+
+
 class DuplicateUpdateError(AppError):
     status_code = status.HTTP_409_CONFLICT
     code = "duplicate_update"

@@ -93,7 +93,7 @@ def test_build_done_doing_empty_today_is_no_update():
     assert doing[0].items == ["No update provided"]
 
 
-def test_merge_summary_replaces_llm_done_doing():
+def test_merge_summary_replaces_llm_done_doing_when_swapped():
     members = [
         SanitizedMember(
             name="Asad",
@@ -127,8 +127,39 @@ def test_merge_summary_replaces_llm_done_doing():
     assert merged.tldr == "Wrong mapping from LLM."
     assert merged.done[0].items == ["working on ui"]
     assert merged.doing[0].items == ["ui completed"]
-    assert merged.done[1].items == ["working on integration"]
-    assert merged.doing[1].items == ["integration completed"]
+
+
+def test_merge_summary_uses_llm_when_grounded_in_correct_field():
+    members = [
+        SanitizedMember(
+            name="Sabir",
+            yesterday="Added summary PUT and regenerate endpoints.",
+            today="Testing manual edit and regenerate flows in Postman.",
+            blockers="test",
+            was_modified=False,
+        )
+    ]
+    llm_summary = StandupSummary(
+        tldr="Sabir progressing on API work.",
+        done=[
+            PersonItems(
+                person="Sabir",
+                items=["Added summary PUT and regenerate endpoints to the API."],
+            )
+        ],
+        doing=[
+            PersonItems(
+                person="Sabir",
+                items=["Testing manual edit and regenerate flows in Postman."],
+            )
+        ],
+        blockers=[Blocker(person="Sabir", item="Testing blocked", severity="medium")],
+    )
+    merged = merge_summary_with_source_fields(llm_summary, members)
+
+    assert "regenerate endpoints" in merged.done[0].items[0]
+    assert "Postman" in merged.doing[0].items[0]
+    assert merged.done[0].items[0] != merged.doing[0].items[0]
 
 
 def test_deterministic_validate_rejects_no_update_when_today_filled():
