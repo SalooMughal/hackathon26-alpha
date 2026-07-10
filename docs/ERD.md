@@ -139,10 +139,12 @@ sequenceDiagram
 
 ## Indexes
 
+The three unique indexes below are created implicitly by the `UNIQUE` constraints in the DDL (`DATABASE.md`) — do not create them again manually:
+
 ```sql
-CREATE UNIQUE INDEX idx_entries_session_member ON standup_entries (session_id, member_id);
-CREATE UNIQUE INDEX idx_sessions_date ON standup_sessions (session_date);
-CREATE UNIQUE INDEX idx_summaries_session ON standup_summaries (session_id);
+-- implicit via UNIQUE (session_id, member_id) on standup_entries
+-- implicit via UNIQUE (session_date) on standup_sessions
+-- implicit via UNIQUE (session_id) on standup_summaries
 ```
 
 ## What we deliberately omit

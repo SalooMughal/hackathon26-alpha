@@ -141,7 +141,7 @@ python-dotenv
 - No auth — local/demo only
 - API keys server-side only (never in Next.js public env)
 - CORS restricted to `localhost:3000` + demo URL
-- Neon connection uses SSL (`sslmode=require`)
+- Neon connection uses SSL (`ssl=require` — asyncpg does not accept `sslmode`)
 
 ## Deployment options (if time permits)
 

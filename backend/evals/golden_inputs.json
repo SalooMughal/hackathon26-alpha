@@ -1,0 +1,83 @@
+[
+  {
+    "label": "demo_day_1",
+    "updates": [
+      {
+        "name": "Shahryar",
+        "yesterday": "Created repo structure and Neon database.",
+        "today": "Lead integration and demo prep.",
+        "blockers": "None"
+      },
+      {
+        "name": "Sabir",
+        "yesterday": "Scaffolded FastAPI app with health endpoint.",
+        "today": "Build entries API and LangGraph summarize route.",
+        "blockers": "Need OpenAI API key in .env"
+      },
+      {
+        "name": "Asad",
+        "yesterday": "Initialized Next.js project with Tailwind.",
+        "today": "Standup form UI and summary panel.",
+        "blockers": null
+      }
+    ]
+  },
+  {
+    "label": "demo_day_2",
+    "updates": [
+      {
+        "name": "Shahryar",
+        "yesterday": "Wired CORS and env config.",
+        "today": "End-to-end integration test.",
+        "blockers": null
+      },
+      {
+        "name": "Sabir",
+        "yesterday": "Implemented update upsert endpoint.",
+        "today": "LangGraph stub nodes and summary service.",
+        "blockers": "None"
+      },
+      {
+        "name": "Zaha",
+        "yesterday": "Drafted ERD and agent prompts.",
+        "today": "Finalize seed data and test AI output quality.",
+        "blockers": "None"
+      },
+      {
+        "name": "Asad",
+        "yesterday": "Built member cards and save flow.",
+        "today": "Summary panel and copy-to-Slack button.",
+        "blockers": "Waiting on summarize API"
+      }
+    ]
+  },
+  {
+    "label": "demo_day_3",
+    "updates": [
+      {
+        "name": "Shahryar",
+        "yesterday": "Demo rehearsal with sample data.",
+        "today": "Judge presentation.",
+        "blockers": null
+      },
+      {
+        "name": "Sabir",
+        "yesterday": "Fixed revision loop cap in graph.",
+        "today": "Support live demo fallback.",
+        "blockers": null
+      },
+      {
+        "name": "Asad",
+        "yesterday": "Polished responsive layout.",
+        "today": "Live demo UI walkthrough.",
+        "blockers": null
+      },
+      {
+        "name": "Zaha",
+        "yesterday": "Validated prompt output format.",
+        "today": "Explain AI pipeline to judges.",
+        "blockers": null
+      }
+    ]
+  }
+]

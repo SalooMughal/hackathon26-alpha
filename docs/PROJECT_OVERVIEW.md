@@ -79,7 +79,7 @@ Teams post scattered standup notes. A lead still has to manually rewrite them in
 
 ```env
 # backend/.env
-DATABASE_URL=postgresql+asyncpg://user:pass@ep-xxx.neon.tech/neondb?sslmode=require
+DATABASE_URL=postgresql+asyncpg://user:pass@ep-xxx.neon.tech/neondb?ssl=require
 OPENAI_API_KEY=sk-...
 # or ANTHROPIC_API_KEY=...
 AI_PROVIDER=openai          # openai | anthropic

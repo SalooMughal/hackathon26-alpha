@@ -54,9 +54,9 @@ backend/
 │   ├── models/
 │   ├── schemas/
 │   ├── routers/
+│   │   ├── health.py
 │   │   ├── team.py
-│   │   ├── sessions.py
-│   │   └── summarize.py
+│   │   └── sessions.py           # entries + summarize (per ARCHITECTURE.md)
 │   └── services/
 │       ├── standup.py
 │       └── langchain_summary.py   # LangChain prompt + LLM
