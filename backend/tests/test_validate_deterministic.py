@@ -2,7 +2,6 @@ from app.agents.validate_deterministic import (
     build_done_doing_from_source,
     deterministic_validate,
     is_real_blocker,
-    merge_summary_with_source_fields,
     normalize_blocker_text,
     normalize_standup_summary,
 )
@@ -93,79 +92,44 @@ def test_build_done_doing_empty_today_is_no_update():
     assert doing[0].items == ["No update provided"]
 
 
-def test_merge_summary_replaces_llm_done_doing_when_swapped():
-    members = [
-        SanitizedMember(
-            name="Asad",
-            yesterday="working on ui",
-            today="ui completed",
-            blockers="None",
-            was_modified=False,
-        ),
-        SanitizedMember(
-            name="Shahryar",
-            yesterday="working on integration",
-            today="integration completed",
-            blockers="None",
-            was_modified=False,
-        ),
-    ]
-    llm_summary = StandupSummary(
-        tldr="Wrong mapping from LLM.",
+def test_deterministic_validate_rejects_first_person():
+    summary = StandupSummary(
+        tldr="Hackathon progress.",
         done=[
-            PersonItems(person="Asad", items=["UI work completed."]),
-            PersonItems(person="Shahryar", items=["Integration work completed."]),
+            PersonItems(
+                person="Asad",
+                items=["I was working on UI components for hackathon proj"],
+            )
         ],
-        doing=[
-            PersonItems(person="Asad", items=["No update provided."]),
-            PersonItems(person="Shahryar", items=["No update provided."]),
-        ],
+        doing=[PersonItems(person="Asad", items=["Completed UI components"])],
         blockers=[],
     )
-    merged = merge_summary_with_source_fields(llm_summary, members)
-
-    assert merged.tldr == "Wrong mapping from LLM."
-    assert merged.done[0].items == ["working on ui"]
-    assert merged.doing[0].items == ["ui completed"]
+    ok, issues = deterministic_validate(summary, ["Asad"])
+    assert not ok
+    assert any("third person" in issue for issue in issues)
 
 
-def test_merge_summary_uses_llm_when_grounded_in_correct_field():
-    members = [
-        SanitizedMember(
-            name="Sabir",
-            yesterday="Added summary PUT and regenerate endpoints.",
-            today="Testing manual edit and regenerate flows in Postman.",
-            blockers="test",
-            was_modified=False,
-        )
-    ]
-    llm_summary = StandupSummary(
-        tldr="Sabir progressing on API work.",
-        done=[
-            PersonItems(
-                person="Sabir",
-                items=["Added summary PUT and regenerate endpoints to the API."],
-            )
-        ],
-        doing=[
-            PersonItems(
-                person="Sabir",
-                items=["Testing manual edit and regenerate flows in Postman."],
-            )
-        ],
-        blockers=[Blocker(person="Sabir", item="Testing blocked", severity="medium")],
+def test_deterministic_validate_rejects_field_swap():
+    summary = StandupSummary(
+        tldr="Wrong mapping from LLM.",
+        done=[PersonItems(person="Asad", items=["UI work completed."])],
+        doing=[PersonItems(person="Asad", items=["No update provided"])],
+        blockers=[],
     )
-    merged = merge_summary_with_source_fields(llm_summary, members)
-
-    assert "regenerate endpoints" in merged.done[0].items[0]
-    assert "Postman" in merged.doing[0].items[0]
-    assert merged.done[0].items[0] != merged.doing[0].items[0]
+    ok, issues = deterministic_validate(
+        summary,
+        ["Asad"],
+        source_yesterday={"Asad": "working on ui"},
+        source_today={"Asad": "ui completed"},
+    )
+    assert not ok
+    assert any("today field" in issue or "yesterday field" in issue for issue in issues)
 
 
 def test_deterministic_validate_rejects_no_update_when_today_filled():
     summary = StandupSummary(
         tldr="Test",
-        done=[PersonItems(person="Asad", items=["working on ui"])],
+        done=[PersonItems(person="Asad", items=["Continued UI work"])],
         doing=[PersonItems(person="Asad", items=["No update provided"])],
         blockers=[],
     )
@@ -178,28 +142,71 @@ def test_deterministic_validate_rejects_no_update_when_today_filled():
     assert any("today field" in issue for issue in issues)
 
 
-def test_deterministic_validate_passes_after_source_merge():
-    members = [
-        SanitizedMember(
-            name="Asad",
-            yesterday="working on ui",
-            today="ui completed",
-            blockers="None",
-            was_modified=False,
-        )
-    ]
-    llm_summary = StandupSummary(
-        tldr="Sabir has a blocker.",
-        done=[PersonItems(person="Asad", items=["UI work completed."])],
-        doing=[PersonItems(person="Asad", items=["No update provided."])],
+def test_deterministic_validate_rejects_verbatim_copy():
+    summary = StandupSummary(
+        tldr="Hackathon progress.",
+        done=[
+            PersonItems(
+                person="Asad",
+                items=["working on ui components for hackathon proj"],
+            )
+        ],
+        doing=[
+            PersonItems(
+                person="Asad",
+                items=["ui componenets for hackathon completed"],
+            )
+        ],
         blockers=[],
     )
-    merged = merge_summary_with_source_fields(llm_summary, members)
     ok, issues = deterministic_validate(
-        merged,
+        summary,
         ["Asad"],
-        source_yesterday={"Asad": "working on ui"},
-        source_today={"Asad": "ui completed"},
+        source_yesterday={
+            "Asad": "i was working ui components for hackathon proj",
+        },
+        source_today={"Asad": "ui componenets for hackathon completed"},
+    )
+    assert not ok
+    assert any("verbatim" in issue for issue in issues)
+
+
+def test_deterministic_validate_passes_third_person_summary():
+    summary = StandupSummary(
+        tldr="Hackathon UI and API work is wrapping up.",
+        done=[
+            PersonItems(
+                person="Asad",
+                items=["Built UI components for the hackathon project"],
+            ),
+            PersonItems(
+                person="Zaha",
+                items=["Developed API endpoints for the hackathon"],
+            ),
+        ],
+        doing=[
+            PersonItems(
+                person="Asad",
+                items=["Completed UI components for the hackathon"],
+            ),
+            PersonItems(
+                person="Zaha",
+                items=["Finished API work for the hackathon"],
+            ),
+        ],
+        blockers=[],
+    )
+    ok, issues = deterministic_validate(
+        summary,
+        ["Asad", "Zaha"],
+        source_yesterday={
+            "Asad": "i was working ui components for hackathon proj",
+            "Zaha": "working on api for hackathon",
+        },
+        source_today={
+            "Asad": "ui componenets for hackathon completed",
+            "Zaha": "api completed for hackathon",
+        },
     )
     assert ok
     assert issues == []

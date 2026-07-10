@@ -82,9 +82,13 @@ class SummaryService:
                 "Summary generation failed — no parsed summary produced."
             )
 
-        degraded = final.status == "degraded" or (
-            final.parsed_summary.tldr
+        degraded = (
+            final.status == "degraded"
+            or final.parsed_summary.tldr
             == "Auto-generated summary — AI validation unavailable."
+            or (
+                final.validation is not None and not final.validation.approved
+            )
         )
         rendered = render_markdown(
             final.parsed_summary,

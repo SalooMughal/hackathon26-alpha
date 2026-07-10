@@ -1,6 +1,9 @@
 import structlog
+from langchain_core.messages import HumanMessage, SystemMessage
 
-from app.agents.preclean import run_node
+from app.agents.llm import get_structured_llm
+from app.agents.preclean import extract_usage, merge_usage, run_node
+from app.agents.prompts.loader import format_team_updates, load_prompt
 from app.agents.state import GraphState
 from app.agents.state_utils import as_graph_state
 from app.agents.validate_deterministic import (
@@ -49,14 +52,47 @@ async def validator_node(state: GraphState | dict) -> dict:
                 "revision_count": state.revision_count + 1,
             }
 
-        # Deterministic checks passed — approve without LLM re-review (avoids
-        # nitpicks on paraphrasing and hallucinated blocker feedback loops).
-        logger.info("validator_approved_deterministic")
-        return {
-            "parsed_summary": summary,
-            "validation": ValidationResult(approved=True, issues=[]),
-            "status": "validated",
-            "usage": state.usage,
-        }
+        parts = load_prompt("validator_v1")
+        human = parts.human_template.format(
+            standup_date=state.standup_date,
+            team_updates=format_team_updates(members),
+            plan=state.plan.model_dump_json(indent=2),
+            summary_json=summary.model_dump_json(indent=2),
+        )
+        messages = [
+            SystemMessage(content=parts.system),
+            HumanMessage(content=human),
+        ]
+        try:
+            llm = get_structured_llm("validator", ValidationResult)
+            response = await llm.ainvoke(messages)
+            result: ValidationResult = response["parsed"]
+            usage = merge_usage(
+                state.usage, "validator", extract_usage(response["raw"])
+            )
+            if not result.approved:
+                logger.warning("validator_llm_reject", issues=result.issues)
+                return {
+                    "parsed_summary": summary,
+                    "validation": result,
+                    "feedback": "\n".join(f"- {issue}" for issue in result.issues),
+                    "revision_count": state.revision_count + 1,
+                    "usage": usage,
+                }
+            logger.info("validator_approved")
+            return {
+                "parsed_summary": summary,
+                "validation": result,
+                "status": "validated",
+                "usage": usage,
+            }
+        except Exception as exc:
+            logger.warning("validator_llm_fail_open", error=str(exc))
+            return {
+                "parsed_summary": summary,
+                "validation": ValidationResult(approved=True, issues=[]),
+                "status": "validated",
+                "usage": state.usage,
+            }
 
     return await run_node("validator", state, _run)

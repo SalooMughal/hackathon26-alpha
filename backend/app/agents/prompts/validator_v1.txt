@@ -19,7 +19,7 @@ RUN THESE CHECKS, IN ORDER
 3. Attribution: no work is credited to the wrong member; no two members' items are merged.
 4. Blocker integrity: every blocker mentioned in the input appears in the summary's blockers; severities are defensible from the member's own wording.
 5. Plan adherence: the summary follows the plan's grouping, section intent, and required emphasis points. Minor deviations in ordering or tone are acceptable; a missed emphasis item or wrong grouping is not.
-6. Sanity: the tldr reflects the day's most important fact; the summary is coherent and free of contradictions.
+7. Style: every done/doing item is third person (no I, my, we, our). Items are paraphrased professional status lines — reject if an item is essentially a copy-paste of the raw input with only minor edits.
 
 DECISION RULES
 - Approve unless a check fails on a MATERIAL defect — one that would mislead a team lead or lose information. Style preferences, word choice, and minor phrasing are never grounds for rejection.

@@ -7,6 +7,9 @@ _NONE_BLOCKER = re.compile(
     r"^(none|n/a|na|no blockers?|nothing|nil|-|—|\.)$", re.IGNORECASE
 )
 _NO_UPDATE = "No update provided"
+_FIRST_PERSON = re.compile(
+    r"\b(I|I'm|I've|I'd|my|me|we|we're|we've|we'd|our|us)\b", re.IGNORECASE
+)
 
 
 def is_real_blocker(text: str | None) -> bool:
@@ -59,76 +62,19 @@ def _normalize_compare(text: str) -> str:
     return " ".join(str(text).lower().strip().split())
 
 
-def _item_grounded_in_source(item: str, source: str) -> bool:
-    """True when a summary item plausibly condenses the source field."""
+def _overlap_score(item: str, source: str) -> float:
+    """How strongly an item reflects a source field (0.0–1.0)."""
     item_n = _normalize_compare(item)
     source_n = _normalize_compare(source)
-    if not source_n or item_n == _NO_UPDATE.lower():
-        return False
+    if not source_n or not item_n or item_n == _NO_UPDATE.lower():
+        return 0.0
     if source_n in item_n or item_n in source_n:
-        return True
-    source_words = {w for w in source_n.split() if len(w) > 2}
+        return 1.0
+    source_words = {w for w in source_n.split() if len(w) > 2} or set(source_n.split())
     if not source_words:
-        source_words = set(source_n.split())
+        return 0.0
     item_words = set(item_n.split())
-    overlap = source_words & item_words
-    threshold = min(2, len(source_words))
-    return len(overlap) >= threshold
-
-
-def _pick_section_items(
-    llm_items: list[str] | None,
-    source_text: str,
-    other_field_text: str,
-) -> list[str]:
-    """Prefer LLM-polished items when grounded in the correct source field."""
-    fallback = [_section_item(source_text)]
-    if not llm_items:
-        return fallback
-    candidate = " ".join(str(i).strip() for i in llm_items if str(i).strip())
-    if not candidate or candidate.lower() == _NO_UPDATE.lower():
-        return fallback
-    grounded_in_source = _item_grounded_in_source(candidate, source_text)
-    grounded_in_other = _item_grounded_in_source(candidate, other_field_text)
-    if grounded_in_source and not grounded_in_other:
-        return [candidate]
-    if grounded_in_source and grounded_in_other:
-        return fallback
-    return fallback
-
-
-def merge_summary_with_source_fields(
-    summary: StandupSummary,
-    members: list[SanitizedMember],
-) -> StandupSummary:
-    """Keep LLM tldr/blockers/cross_links; merge done/doing with source-aware polish."""
-    llm_done = {p.person: p.items for p in summary.done}
-    llm_doing = {p.person: p.items for p in summary.doing}
-
-    done: list[PersonItems] = []
-    doing: list[PersonItems] = []
-    for member in members:
-        done.append(
-            PersonItems(
-                person=member.name,
-                items=_pick_section_items(
-                    llm_done.get(member.name),
-                    member.yesterday,
-                    member.today,
-                ),
-            )
-        )
-        doing.append(
-            PersonItems(
-                person=member.name,
-                items=_pick_section_items(
-                    llm_doing.get(member.name),
-                    member.today,
-                    member.yesterday,
-                ),
-            )
-        )
-    return summary.model_copy(update={"done": done, "doing": doing})
+    return len(source_words & item_words) / len(source_words)
 
 
 def normalize_standup_summary(
@@ -152,6 +98,58 @@ def normalize_standup_summary(
 
 def _items_include_no_update(items: list[str]) -> bool:
     return any(item.strip().lower() == _NO_UPDATE.lower() for item in items)
+
+
+def _normalize_words(text: str) -> set[str]:
+    cleaned = re.sub(r"[^\w\s]", " ", _normalize_compare(text))
+    return {w for w in cleaned.split() if w}
+
+
+def _is_near_verbatim(item: str, source: str) -> bool:
+    """True when an item is essentially a copy-paste of the source field."""
+    if not _field_has_content(source):
+        return False
+    item_words = _normalize_words(item)
+    source_words = _normalize_words(source)
+    if not item_words or not source_words:
+        return False
+    if item_words == source_words:
+        return True
+    overlap = item_words & source_words
+    return len(overlap) / len(source_words) >= 0.85 and len(item_words) <= len(source_words) + 2
+
+
+def _combined_item_text(items: list[str]) -> str:
+    return " ".join(str(i).strip() for i in items if str(i).strip())
+
+
+def _uses_first_person(text: str) -> bool:
+    return _FIRST_PERSON.search(text) is not None
+
+
+def _field_swap_issue(
+    person: str,
+    items: list[str],
+    expected_source: str,
+    other_source: str,
+    section_label: str,
+    expected_label: str,
+    other_label: str,
+) -> str | None:
+    """Detect when a section item aligns more with the wrong source field."""
+    if not _field_has_content(expected_source):
+        return None
+    text = _combined_item_text(items)
+    if not text or text.lower() == _NO_UPDATE.lower():
+        return None
+    expected_score = _overlap_score(text, expected_source)
+    other_score = _overlap_score(text, other_source)
+    if other_score > expected_score + 0.15 and other_score >= 0.35:
+        return (
+            f"{person} {section_label} item appears to come from their {other_label} "
+            f"field — rewrite using their {expected_label} field in third person."
+        )
+    return None
 
 
 def deterministic_validate(
@@ -197,6 +195,55 @@ def deterministic_validate(
                     f"{section.person} doing section must use their today field, "
                     "not 'No update provided'."
                 )
+
+    if source_yesterday is not None and source_today is not None:
+        for section in summary.done:
+            issue = _field_swap_issue(
+                section.person,
+                section.items,
+                source_yesterday.get(section.person, ""),
+                source_today.get(section.person, ""),
+                "done",
+                "yesterday",
+                "today",
+            )
+            if issue:
+                issues.append(issue)
+            text = _combined_item_text(section.items)
+            source = source_yesterday.get(section.person, "")
+            if _is_near_verbatim(text, source):
+                issues.append(
+                    f"{section.person}: done item copies yesterday verbatim — "
+                    "rewrite in third person as a concise status line."
+                )
+        for section in summary.doing:
+            issue = _field_swap_issue(
+                section.person,
+                section.items,
+                source_today.get(section.person, ""),
+                source_yesterday.get(section.person, ""),
+                "doing",
+                "today",
+                "yesterday",
+            )
+            if issue:
+                issues.append(issue)
+            text = _combined_item_text(section.items)
+            source = source_today.get(section.person, "")
+            if _is_near_verbatim(text, source):
+                issues.append(
+                    f"{section.person}: doing item copies today verbatim — "
+                    "rewrite in third person as a concise status line."
+                )
+
+    for section in summary.done + summary.doing:
+        for item in section.items:
+            if _uses_first_person(item):
+                issues.append(
+                    f"{section.person}: rewrite in third person — remove first-person "
+                    f"wording (I/my/we) from done/doing items."
+                )
+                break
 
     for blocker in summary.blockers:
         if not is_real_blocker(blocker.item):

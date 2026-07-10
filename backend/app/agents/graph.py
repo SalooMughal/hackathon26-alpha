@@ -34,10 +34,7 @@ def route_after_validator(state: GraphState | dict) -> str:
     settings = get_settings()
     if s.revision_count <= settings.MAX_REVISIONS:
         return "retry"
-    # Exhausted retries but we have an AI-parsed summary — use it instead of raw fallback.
-    if s.parsed_summary is not None and s.parsed_summary.tldr != (
-        "Auto-generated summary — AI validation unavailable."
-    ):
+    if s.parsed_summary is not None:
         return "done"
     return "fallback"
 

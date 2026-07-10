@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     VALIDATOR_MODEL: str = "gpt-4o-mini"
     LLM_TIMEOUT_SECONDS: int = 30
     LLM_MAX_RETRIES: int = 2
-    MAX_REVISIONS: int = 2
+    MAX_REVISIONS: int = 4
     GRAPH_RECURSION_LIMIT: int = 15
 
     LOG_LEVEL: str = "INFO"
