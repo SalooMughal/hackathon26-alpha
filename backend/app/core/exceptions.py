@@ -28,6 +28,11 @@ class IncompleteUpdatesError(AppError):
     code = "incomplete_updates"
 
 
+class DuplicateUpdateError(AppError):
+    status_code = status.HTTP_409_CONFLICT
+    code = "duplicate_update"
+
+
 def _envelope(request: Request, code: str, message: str) -> dict:
     return {
         "error": {

@@ -4,7 +4,9 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import NotFoundError
+from sqlalchemy.exc import IntegrityError
+
+from app.core.exceptions import DuplicateUpdateError, NotFoundError
 from app.db.models.member import Member
 from app.db.models.update import Update
 from app.schemas.update import UpdateRead, UpdateUpsert, UpdatesListResponse
@@ -14,21 +16,60 @@ class UpdateService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def upsert_update(
-        self, member_id: uuid.UUID, body: UpdateUpsert, standup_date: date | None = None
-    ) -> UpdateRead:
-        target_date = standup_date or date.today()
+    async def _get_member(self, member_id: uuid.UUID) -> Member:
         member = await self.db.get(Member, member_id)
         if not member or not member.is_active:
             raise NotFoundError(f"Member {member_id} not found or inactive")
+        return member
 
+    async def _get_existing(
+        self, member_id: uuid.UUID, target_date: date
+    ) -> Update | None:
         result = await self.db.execute(
             select(Update).where(
                 Update.member_id == member_id,
                 Update.standup_date == target_date,
             )
         )
-        row = result.scalar_one_or_none()
+        return result.scalar_one_or_none()
+
+    async def create_update(
+        self,
+        member_id: uuid.UUID,
+        body: UpdateUpsert,
+        standup_date: date | None = None,
+    ) -> UpdateRead:
+        """First submission only — one row per member per standup_date."""
+        target_date = standup_date or date.today()
+        member = await self._get_member(member_id)
+        if await self._get_existing(member_id, target_date):
+            raise DuplicateUpdateError(
+                f"{member.name} already submitted an update for "
+                f"{target_date.isoformat()}. Only one submission per member per "
+                "day is allowed. Use PUT on the same URL to edit that update. "
+                "Other team members can still submit using their own member_id."
+            )
+        return await self._save_update(member, member_id, body, target_date)
+
+    async def upsert_update(
+        self,
+        member_id: uuid.UUID,
+        body: UpdateUpsert,
+        standup_date: date | None = None,
+    ) -> UpdateRead:
+        """Create or replace an update (for edits before standup is summarized)."""
+        target_date = standup_date or date.today()
+        member = await self._get_member(member_id)
+        return await self._save_update(member, member_id, body, target_date)
+
+    async def _save_update(
+        self,
+        member: Member,
+        member_id: uuid.UUID,
+        body: UpdateUpsert,
+        target_date: date,
+    ) -> UpdateRead:
+        row = await self._get_existing(member_id, target_date)
         if row:
             row.yesterday = body.yesterday
             row.today = body.today
@@ -42,7 +83,14 @@ class UpdateService:
                 standup_date=target_date,
             )
             self.db.add(row)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError as exc:
+            raise DuplicateUpdateError(
+                f"{member.name} already submitted an update for "
+                f"{target_date.isoformat()}. Only one submission per member per "
+                "day is allowed."
+            ) from exc
         await self.db.refresh(row)
         return UpdateRead(
             id=row.id,
