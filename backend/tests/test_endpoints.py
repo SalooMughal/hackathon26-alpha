@@ -50,7 +50,7 @@ async def test_update_saved_with_standup_date(client, db_session):
 
 
 @pytest.mark.asyncio
-async def test_post_duplicate_rejected_but_other_members_allowed(client, db_session):
+async def test_post_allows_editing_todays_update(client, db_session):
     sabir = Member(name="Sabir", is_active=True)
     asad = Member(name="Asad", is_active=True)
     db_session.add_all([sabir, asad])
@@ -61,20 +61,40 @@ async def test_post_duplicate_rejected_but_other_members_allowed(client, db_sess
     first = await client.post(f"/api/v1/updates/{sabir.id}", json=SAMPLE_UPDATE)
     assert first.status_code == 200
 
-    duplicate = await client.post(
+    edited = await client.post(
         f"/api/v1/updates/{sabir.id}",
         json={
-            "yesterday": "Different content.",
-            "today": "Should not save on POST.",
+            "yesterday": "Revised yesterday via POST.",
+            "today": "Revised today via POST.",
             "blockers": "None",
         },
     )
-    assert duplicate.status_code == 409
-    assert duplicate.json()["error"]["code"] == "duplicate_update"
+    assert edited.status_code == 200
+    assert edited.json()["yesterday"] == "Revised yesterday via POST."
 
     other_member = await client.post(f"/api/v1/updates/{asad.id}", json=SAMPLE_UPDATE)
     assert other_member.status_code == 200
     assert other_member.json()["member_name"] == "Asad"
+
+
+@pytest.mark.asyncio
+async def test_get_member_update_for_edit_form(client, db_session):
+    member = Member(name="Sabir", is_active=True)
+    db_session.add(member)
+    await db_session.commit()
+    await db_session.refresh(member)
+
+    await client.post(f"/api/v1/updates/{member.id}", json=SAMPLE_UPDATE)
+
+    response = await client.get(f"/api/v1/updates/{member.id}")
+    assert response.status_code == 200
+    assert response.json()["yesterday"] == SAMPLE_UPDATE["yesterday"]
+
+    missing = await client.get(
+        f"/api/v1/updates/{member.id}",
+        params={"standup_date": "2026-01-01"},
+    )
+    assert missing.status_code == 404
 
 
 @pytest.mark.asyncio

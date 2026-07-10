@@ -33,34 +33,38 @@ class UpdateService:
         )
         return result.scalar_one_or_none()
 
-    async def create_update(
-        self,
-        member_id: uuid.UUID,
-        body: UpdateUpsert,
-        standup_date: date | None = None,
-    ) -> UpdateRead:
-        """First submission only — one row per member per standup_date."""
-        target_date = standup_date or date.today()
-        member = await self._get_member(member_id)
-        if await self._get_existing(member_id, target_date):
-            raise DuplicateUpdateError(
-                f"{member.name} already submitted an update for "
-                f"{target_date.isoformat()}. Only one submission per member per "
-                "day is allowed. Use PUT on the same URL to edit that update. "
-                "Other team members can still submit using their own member_id."
-            )
-        return await self._save_update(member, member_id, body, target_date)
-
     async def upsert_update(
         self,
         member_id: uuid.UUID,
         body: UpdateUpsert,
         standup_date: date | None = None,
     ) -> UpdateRead:
-        """Create or replace an update (for edits before standup is summarized)."""
+        """Create or update a member's standup for a date (one row per member per day)."""
         target_date = standup_date or date.today()
         member = await self._get_member(member_id)
         return await self._save_update(member, member_id, body, target_date)
+
+    async def get_member_update(
+        self, member_id: uuid.UUID, standup_date: date | None = None
+    ) -> UpdateRead:
+        """Fetch one member's update for a standup date (for edit forms)."""
+        target_date = standup_date or date.today()
+        member = await self._get_member(member_id)
+        row = await self._get_existing(member_id, target_date)
+        if not row:
+            raise NotFoundError(
+                f"No update for {member.name} on {target_date.isoformat()}"
+            )
+        return UpdateRead(
+            id=row.id,
+            member_id=row.member_id,
+            member_name=member.name,
+            yesterday=row.yesterday,
+            today=row.today,
+            blockers=row.blockers,
+            standup_date=row.standup_date,
+            updated_at=row.updated_at,
+        )
 
     async def _save_update(
         self,
