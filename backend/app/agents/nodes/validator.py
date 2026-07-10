@@ -1,11 +1,15 @@
-from langchain_core.messages import HumanMessage, SystemMessage
+import structlog
 
-from app.agents.llm import get_structured_llm
-from app.agents.preclean import extract_usage, merge_usage, run_node
-from app.agents.prompts.loader import format_team_updates, load_prompt
+from app.agents.preclean import run_node
 from app.agents.state import GraphState
 from app.agents.state_utils import as_graph_state
+from app.agents.validate_deterministic import (
+    deterministic_validate,
+    normalize_standup_summary,
+)
 from app.schemas.validation import ValidationResult
+
+logger = structlog.get_logger(__name__)
 
 
 async def validator_node(state: GraphState | dict) -> dict:
@@ -19,37 +23,35 @@ async def validator_node(state: GraphState | dict) -> dict:
                 "status": "degraded",
                 "error": "validator: missing sanitized_updates, plan, or parsed_summary",
             }
-        parts = load_prompt("validator_v1")
-        human = parts.human_template.format(
-            standup_date=state.standup_date,
-            team_updates=format_team_updates(state.sanitized_updates.members),
-            plan=state.plan.model_dump_json(indent=2),
-            summary_json=state.parsed_summary.model_dump_json(indent=2),
+
+        source_blockers = {
+            m.name: m.blockers for m in state.sanitized_updates.members
+        }
+        summary = normalize_standup_summary(
+            state.parsed_summary, source_blockers=source_blockers
         )
-        messages = [
-            SystemMessage(content=parts.system),
-            HumanMessage(content=human),
-        ]
-        try:
-            llm = get_structured_llm("validator", ValidationResult)
-            response = await llm.ainvoke(messages)
-            result: ValidationResult = response["parsed"]
-            usage = merge_usage(
-                state.usage, "validator", extract_usage(response["raw"])
-            )
-            if result.approved:
-                return {
-                    "validation": result,
-                    "status": "validated",
-                    "usage": usage,
-                }
+        member_names = [m.name for m in state.sanitized_updates.members]
+
+        ok, det_issues = deterministic_validate(
+            summary, member_names, source_blockers=source_blockers
+        )
+        if not ok:
+            logger.warning("validator_deterministic_reject", issues=det_issues)
             return {
-                "validation": result,
-                "feedback": "\n".join(f"- {issue}" for issue in result.issues),
+                "parsed_summary": summary,
+                "validation": ValidationResult(approved=False, issues=det_issues),
+                "feedback": "\n".join(f"- {issue}" for issue in det_issues),
                 "revision_count": state.revision_count + 1,
-                "usage": usage,
             }
-        except Exception as exc:
-            return {"status": "degraded", "error": f"validator: {exc}"}
+
+        # Deterministic checks passed — approve without LLM re-review (avoids
+        # nitpicks on paraphrasing and hallucinated blocker feedback loops).
+        logger.info("validator_approved_deterministic")
+        return {
+            "parsed_summary": summary,
+            "validation": ValidationResult(approved=True, issues=[]),
+            "status": "validated",
+            "usage": state.usage,
+        }
 
     return await run_node("validator", state, _run)

@@ -1,6 +1,7 @@
 from app.agents.preclean import run_node
 from app.agents.state import GraphState
 from app.agents.state_utils import as_graph_state
+from app.agents.validate_deterministic import is_real_blocker
 from app.schemas.summary import Blocker, PersonItems, StandupSummary
 
 
@@ -36,7 +37,7 @@ async def fallback_node(state: GraphState | dict) -> dict:
                 done.append(PersonItems(person=member.name, items=[member.yesterday]))
             if member.today:
                 doing.append(PersonItems(person=member.name, items=[member.today]))
-            if member.blockers:
+            if is_real_blocker(member.blockers):
                 blockers.append(
                     Blocker(
                         person=member.name,
