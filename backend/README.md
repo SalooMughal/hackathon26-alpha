@@ -42,6 +42,36 @@ python -m app.db.seeds.seed_members
 uvicorn app.main:app --reload --port 8000
 ```
 
+## Deploy on Render
+
+**Root Directory:** `backend`
+
+**Environment variable (required):**
+
+```env
+PYTHON_VERSION=3.13.0
+```
+
+Render may default to Python 3.14, which tries to compile `pydantic-core` from Rust and fails. Pin **3.13.0**.
+
+**Build Command:**
+
+```bash
+pip install --upgrade pip && pip install -r requirements.txt && alembic upgrade head
+```
+
+**Start Command:**
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
+Or use the repo `render.yaml` Blueprint. After first deploy, run seed once in Render Shell:
+
+```bash
+python -m app.db.seeds.seed_members
+```
+
 ## API (prefix `/api/v1`)
 
 | Method | Path | Description |
