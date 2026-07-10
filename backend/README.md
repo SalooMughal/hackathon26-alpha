@@ -1,35 +1,38 @@
 # Standup Bot Backend
 
-FastAPI backend for the AI Standup Bot hackathon project (Team Alpha).
+FastAPI backend with a multi-agent LangGraph pipeline for AI standup summaries.
 
-## Phase 1 status
+## Pipeline
 
-This scaffold includes project structure, config, logging, DB models, Alembic migration, seeder, API route stubs, and LangGraph agent stubs. Business logic and full workflow wiring come in Phase 2.
+```
+sanitizer → planner → summarizer → parser → validator → END
+                              ↑ retry (bounded) ↑
+                              fallback (degraded)
+```
+
+- **Sanitizer** — input guardrail (fail-open on LLM error)
+- **Planner** — structured summary plan (`gpt-4o-mini`)
+- **Summarizer** — JSON summary output (`gpt-4o`)
+- **Parser** — deterministic `json.loads` + Pydantic validation
+- **Validator** — faithfulness check (`gpt-4o-mini`)
+- **Fallback** — deterministic template when validation fails
 
 ## Requirements
 
 - Python 3.11+
-- Neon Postgres (or local Postgres for dev)
-- OpenAI API key (required at startup even before LLM calls are wired)
+- Neon Postgres
+- OpenAI API key
 
 ## Setup
 
 ```bash
 cd backend
-python -m venv .venv
+python3.13 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env
-# Edit .env with your DATABASE_URL and OPENAI_API_KEY
-```
-
-## Database
-
-```bash
-# Run migrations
+# Set DATABASE_URL and OPENAI_API_KEY
 alembic upgrade head
-
-# Seed team members (idempotent)
 python -m app.db.seeds.seed_members
 ```
 
@@ -39,25 +42,16 @@ python -m app.db.seeds.seed_members
 uvicorn app.main:app --reload --port 8000
 ```
 
-API docs: http://localhost:8000/docs
+## API (prefix `/api/v1`)
 
-## Endpoints (scaffold)
-
-| Method | Path | Status |
-|--------|------|--------|
-| GET | `/health` | Working (SELECT 1) |
-| GET | `/api/v1/team` | Stub — Phase 2 |
-| PUT | `/api/v1/updates/{member_id}` | Stub — Phase 2 |
-| GET | `/api/v1/updates?date=` | Stub — Phase 2 |
-| POST | `/api/v1/summary` | Stub — Phase 2 |
-| GET | `/api/v1/summary/{id}` | Stub — Phase 2 |
-
-## Environment variables
-
-See `.env.example` for all settings. Required at startup:
-
-- `DATABASE_URL` — `postgresql+asyncpg://...` (do not use `sslmode` in URL; SSL is set via connect_args)
-- `OPENAI_API_KEY`
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Liveness + DB check |
+| GET | `/team` | Active members |
+| PUT | `/updates/{member_id}` | Upsert today's update |
+| GET | `/updates?date=` | List updates for a date |
+| POST | `/summary` | Run full agent pipeline |
+| GET | `/summary/{id}` | Fetch persisted summary |
 
 ## Tests
 
@@ -65,23 +59,25 @@ See `.env.example` for all settings. Required at startup:
 pytest
 ```
 
-Most tests are skipped until Phase 2 wiring is complete.
+## Live evals (requires real OpenAI key)
 
-## Project structure
-
+```bash
+python -m evals.run_evals
 ```
-backend/
-├── app/
-│   ├── main.py              # FastAPI app, middleware, CORS
-│   ├── api/                 # Route handlers (thin layer)
-│   ├── core/                # Config, logging, exceptions
-│   ├── db/                  # SQLAlchemy models, session, seeds
-│   ├── schemas/             # Pydantic request/response models
-│   ├── agents/              # LangGraph stubs (Phase 2)
-│   ├── services/            # Business logic layer
-│   └── utils/
-├── alembic/                 # Migrations
-├── tests/
-├── evals/                   # Golden demo inputs
-└── pyproject.toml
+
+## Curl walkthrough
+
+```bash
+# List team
+curl http://localhost:8000/api/v1/team
+
+# Upsert update (use member UUID from /team)
+curl -X PUT http://localhost:8000/api/v1/updates/{member_id} \
+  -H "Content-Type: application/json" \
+  -d '{"yesterday":"Built API","today":"LangGraph pipeline","blockers":"None"}'
+
+# Generate summary (all members must have yesterday + today filled)
+curl -X POST http://localhost:8000/api/v1/summary \
+  -H "Content-Type: application/json" \
+  -d '{}'
 ```

@@ -9,6 +9,7 @@ from app.schemas.summary import (
     SummaryDetailResponse,
     SummaryResponse,
 )
+from app.services.summary_service import SummaryService
 
 router = APIRouter()
 
@@ -18,8 +19,7 @@ async def create_summary(
     body: SummaryCreateRequest,
     db: AsyncSession = Depends(get_db),
 ) -> SummaryResponse:
-    """Run the LangGraph workflow and persist a summary. Implementation in Phase 2."""
-    raise NotImplementedError("Summary generation will be implemented in the next phase.")
+    return await SummaryService(db).generate_summary(body.standup_date)
 
 
 @router.get("/summary/{summary_id}", response_model=SummaryDetailResponse)
@@ -27,5 +27,4 @@ async def get_summary(
     summary_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ) -> SummaryDetailResponse:
-    """Fetch a persisted summary by ID. Implementation in Phase 2."""
-    raise NotImplementedError("Summary retrieval will be implemented in the next phase.")
+    return await SummaryService(db).get_summary(summary_id)

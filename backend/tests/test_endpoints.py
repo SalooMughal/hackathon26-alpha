@@ -1,36 +1,27 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.db.models.member import Member
 from app.main import app
 
 
-@pytest.fixture
-async def client():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
-
-
-@pytest.mark.skip(reason="Requires test DB — implement in Phase 2")
-async def test_health(client: AsyncClient) -> None:
+@pytest.mark.asyncio
+async def test_health(client):
     response = await client.get("/health")
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"
-    assert data["db"] in ("ok", "fail")
+    assert data["db"] == "ok"
 
 
-@pytest.mark.skip(reason="Requires seeded DB — implement in Phase 2")
-async def test_team_list(client: AsyncClient) -> None:
+@pytest.mark.asyncio
+async def test_team_list_after_seed(client, db_session):
+    db_session.add(Member(name="Sabir", is_active=True))
+    db_session.add(Member(name="Asad", is_active=True))
+    await db_session.commit()
+
     response = await client.get("/api/v1/team")
     assert response.status_code == 200
-
-
-@pytest.mark.skip(reason="Requires seeded DB — implement in Phase 2")
-async def test_update_upsert(client: AsyncClient) -> None:
-    pass
-
-
-@pytest.mark.skip(reason="Requires full workflow — implement in Phase 2")
-async def test_summary_flow(client: AsyncClient) -> None:
-    pass
+    names = [m["name"] for m in response.json()["members"]]
+    assert "Sabir" in names
+    assert "Asad" in names
