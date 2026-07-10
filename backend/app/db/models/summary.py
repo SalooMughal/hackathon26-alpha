@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Enum, Text, func
+from sqlalchemy import Date, DateTime, Enum, JSON, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,14 +20,20 @@ class Summary(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
     standup_date: Mapped[date] = mapped_column(Date, nullable=False)
-    plan: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    content: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    plan: Mapped[dict | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    content: Mapped[dict] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False
+    )
     rendered_markdown: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[SummaryStatus] = mapped_column(
         Enum(SummaryStatus, name="summary_status", native_enum=False),
         nullable=False,
     )
-    model_meta: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    model_meta: Mapped[dict] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=dict
+    )
     prompt_version: Mapped[str] = mapped_column(Text, nullable=False, default="v1")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

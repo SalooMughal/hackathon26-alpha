@@ -1,22 +1,53 @@
 import json
+import re
 
-import structlog
-
+from app.agents.preclean import run_node
 from app.agents.state import GraphState
+from app.agents.state_utils import as_graph_state
 from app.schemas.summary import StandupSummary
 
-logger = structlog.get_logger(__name__)
+_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
 
-async def parser_node(state: GraphState) -> dict:
-    """Deterministic JSON parser — json.loads + Pydantic validation."""
-    logger.info("agent_node", node="parser", revision_count=state.get("revision_count", 0))
-    raw = state.get("raw_summary_output")
-    if not raw:
-        return {"feedback": "No raw summary output to parse.", "status": "in_progress"}
-    try:
-        data = json.loads(raw)
-        parsed = StandupSummary.model_validate(data)
-        return {"parsed_summary": parsed.model_dump(), "feedback": None}
-    except (json.JSONDecodeError, ValueError) as exc:
-        return {"feedback": str(exc), "status": "in_progress"}
+def _extract_json(raw: str) -> str:
+    text = raw.strip()
+    text = _FENCE_RE.sub("", text).strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return text
+    return text[start : end + 1]
+
+
+async def parser_node(state: GraphState | dict) -> dict:
+    state = as_graph_state(state)
+    if state.status == "degraded":
+        return {}
+
+    async def _run() -> dict:
+        raw = state.raw_summary_output
+        if not raw:
+            return {
+                "parsed_summary": None,
+                "feedback": (
+                    "Your previous output was invalid JSON or failed schema validation: "
+                    "empty output. Return only a single valid JSON object matching the schema."
+                ),
+                "revision_count": state.revision_count + 1,
+            }
+        try:
+            payload = json.loads(_extract_json(raw))
+            summary = StandupSummary.model_validate(payload)
+            return {"parsed_summary": summary}
+        except (json.JSONDecodeError, ValueError) as exc:
+            short_error = str(exc)[:200]
+            return {
+                "parsed_summary": None,
+                "feedback": (
+                    "Your previous output was invalid JSON or failed schema validation: "
+                    f"{short_error}. Return only a single valid JSON object matching the schema."
+                ),
+                "revision_count": state.revision_count + 1,
+            }
+
+    return await run_node("parser", state, _run)

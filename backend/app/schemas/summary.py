@@ -10,17 +10,17 @@ class PersonItems(BaseModel):
     items: list[str]
 
 
-class BlockerItem(BaseModel):
+class Blocker(BaseModel):
     person: str
     item: str
-    severity: Literal["low", "medium", "high"] = "low"
+    severity: Literal["low", "medium", "high"]
 
 
 class StandupSummary(BaseModel):
     tldr: str
     done: list[PersonItems]
     doing: list[PersonItems]
-    blockers: list[BlockerItem]
+    blockers: list[Blocker]
     cross_links: list[str] = Field(default_factory=list)
 
 
@@ -49,34 +49,35 @@ class SummaryDetailResponse(BaseModel):
     created_at: datetime
 
 
-def render_markdown(summary: StandupSummary, standup_date: date | None = None) -> str:
+def render_markdown(
+    summary: StandupSummary, standup_date: date, degraded: bool = False
+) -> str:
     """Deterministic Slack-flavored markdown renderer (no LLM)."""
-    header_date = standup_date.isoformat() if standup_date else "Today"
-    lines = [f"📋 Daily Standup — {header_date}", "", summary.tldr, ""]
-
-    lines.extend(["✅ Done (Yesterday)", ""])
+    lines = [
+        f"📋 Daily Standup — {standup_date.isoformat()}",
+        "",
+        summary.tldr,
+        "",
+        "*Done (Yesterday)*",
+        "",
+    ]
     for section in summary.done:
         items = "; ".join(section.items)
         lines.append(f"• {section.person}: {items}")
-    lines.append("")
-
-    lines.extend(["🔄 Doing (Today)", ""])
+    lines.extend(["", "*Doing (Today)*", ""])
     for section in summary.doing:
         items = "; ".join(section.items)
         lines.append(f"• {section.person}: {items}")
-    lines.append("")
-
-    lines.extend(["🚧 Blockers", ""])
+    lines.extend(["", "*Blockers*", ""])
     if summary.blockers:
         for blocker in summary.blockers:
             lines.append(f"• {blocker.person}: {blocker.item}")
     else:
         lines.append("• None")
-    lines.append("")
-
     if summary.cross_links:
-        lines.extend(["🔗 Cross-links", ""])
+        lines.extend(["", "*Cross-links*", ""])
         for link in summary.cross_links:
             lines.append(f"• {link}")
-
+    if degraded:
+        lines.extend(["", "⚠ auto-generated without AI validation"])
     return "\n".join(lines)
