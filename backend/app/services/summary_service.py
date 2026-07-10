@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.graph import graph
 from app.agents.preclean import preclean_updates
 from app.agents.state import GraphState
-from app.agents.validate_deterministic import normalize_blocker_text
+from app.services.team_updates import partition_team_updates
 from app.core.config import get_settings
 from app.core.exceptions import IncompleteUpdatesError, NotFoundError
 from app.db.models.member import Member
@@ -29,7 +29,9 @@ class SummaryService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def _load_raw_updates(self, standup_date: date) -> list[dict]:
+    async def _load_raw_updates(
+        self, standup_date: date
+    ) -> tuple[list[dict], list[str]]:
         members_result = await self.db.execute(
             select(Member).where(Member.is_active.is_(True)).order_by(Member.name)
         )
@@ -39,36 +41,22 @@ class SummaryService:
         )
         updates_by_member = {u.member_id: u for u in updates_result.scalars().all()}
 
-        missing = [
-            m.name
-            for m in members
-            if m.id not in updates_by_member
-            or not updates_by_member[m.id].yesterday.strip()
-            or not updates_by_member[m.id].today.strip()
-        ]
-        if missing:
+        raw_updates, missing_members = partition_team_updates(
+            members, updates_by_member
+        )
+        if not raw_updates:
             raise IncompleteUpdatesError(
-                "All team members must have yesterday, today, and blockers filled "
-                f"before summarizing. Missing or incomplete: {', '.join(missing)}"
+                "No team members have submitted updates for "
+                f"{standup_date.isoformat()}. At least one complete update "
+                f"(yesterday and today) is required before summarizing."
             )
 
-        raw_updates = []
-        for member in members:
-            update = updates_by_member[member.id]
-            raw_updates.append(
-                {
-                    "name": member.name,
-                    "yesterday": update.yesterday,
-                    "today": update.today,
-                    "blockers": update.blockers or "",
-                }
-            )
-        return preclean_updates(raw_updates)
+        return preclean_updates(raw_updates), missing_members
 
     async def generate_summary(self, standup_date: date | None = None) -> SummaryResponse:
         target_date = standup_date or date.today()
         settings = get_settings()
-        raw_updates = await self._load_raw_updates(target_date)
+        raw_updates, missing_members = await self._load_raw_updates(target_date)
 
         initial = GraphState(
             standup_date=target_date.isoformat(),
@@ -99,7 +87,10 @@ class SummaryService:
             == "Auto-generated summary — AI validation unavailable."
         )
         rendered = render_markdown(
-            final.parsed_summary, target_date, degraded=degraded
+            final.parsed_summary,
+            target_date,
+            degraded=degraded,
+            missing_members=missing_members,
         )
         sanitizer_flags = {}
         if final.sanitized_updates:
@@ -124,6 +115,7 @@ class SummaryService:
             "usage_total": total_usage,
             "sanitizer_flags": sanitizer_flags,
             "graph_duration_ms": duration_ms,
+            "missing_members": missing_members,
             "error": final.error,
         }
 
@@ -145,6 +137,7 @@ class SummaryService:
             status="degraded" if degraded else "validated",
             content=final.parsed_summary,
             rendered_markdown=rendered,
+            missing_members=missing_members,
             model_meta=model_meta,
         )
 
@@ -158,6 +151,7 @@ class SummaryService:
             status=row.status.value,
             content=StandupSummary.model_validate(row.content),
             rendered_markdown=row.rendered_markdown,
+            missing_members=row.model_meta.get("missing_members", []),
             model_meta=row.model_meta,
             prompt_version=row.prompt_version,
             created_at=row.created_at,

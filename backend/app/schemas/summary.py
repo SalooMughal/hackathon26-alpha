@@ -33,6 +33,7 @@ class SummaryResponse(BaseModel):
     status: Literal["validated", "degraded"]
     content: StandupSummary
     rendered_markdown: str
+    missing_members: list[str] = Field(default_factory=list)
     model_meta: dict
 
 
@@ -44,13 +45,17 @@ class SummaryDetailResponse(BaseModel):
     status: Literal["validated", "degraded"]
     content: StandupSummary
     rendered_markdown: str
+    missing_members: list[str] = Field(default_factory=list)
     model_meta: dict
     prompt_version: str
     created_at: datetime
 
 
 def render_markdown(
-    summary: StandupSummary, standup_date: date, degraded: bool = False
+    summary: StandupSummary,
+    standup_date: date,
+    degraded: bool = False,
+    missing_members: list[str] | None = None,
 ) -> str:
     """Deterministic Slack-flavored markdown renderer (no LLM)."""
     lines = [
@@ -78,6 +83,10 @@ def render_markdown(
         lines.extend(["", "*Cross-links*", ""])
         for link in summary.cross_links:
             lines.append(f"• {link}")
+    if missing_members:
+        lines.extend(["", "*Missing updates*", ""])
+        for name in missing_members:
+            lines.append(f"• {name}: No update submitted for this date")
     if degraded:
         lines.extend(["", "⚠ auto-generated without AI validation"])
     return "\n".join(lines)
