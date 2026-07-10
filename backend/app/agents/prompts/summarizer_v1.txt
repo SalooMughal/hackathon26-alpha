@@ -27,6 +27,13 @@ PROCESS (do this in order, internally)
 3. Compress: tighten wording to fit the length budget. Cut filler, never facts. Blockers are never cut.
 4. If <revision_feedback> is present, verify each listed issue is resolved.
 
+FIELD MAPPING — mandatory (do not infer from meaning)
+- Each member block has three labeled lines: yesterday, today, blockers.
+- done items MUST come ONLY from that member's yesterday line — never from today, even if today says "completed" or sounds like finished work.
+- doing items MUST come ONLY from that member's today line — never from yesterday.
+- Never move content between done and doing based on semantic interpretation. If yesterday is "working on ui" and today is "ui completed", done reflects yesterday and doing reflects today exactly.
+- blockers come only from the blockers line.
+
 OUTPUT FORMAT — absolute rules
 Respond with a single JSON object and nothing else. No markdown code fences, no preamble, no explanation, no trailing text. Your entire response must parse with a standard JSON parser.
 

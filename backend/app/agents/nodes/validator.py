@@ -24,16 +24,21 @@ async def validator_node(state: GraphState | dict) -> dict:
                 "error": "validator: missing sanitized_updates, plan, or parsed_summary",
             }
 
-        source_blockers = {
-            m.name: m.blockers for m in state.sanitized_updates.members
-        }
+        members = state.sanitized_updates.members
+        source_blockers = {m.name: m.blockers for m in members}
+        source_yesterday = {m.name: m.yesterday for m in members}
+        source_today = {m.name: m.today for m in members}
         summary = normalize_standup_summary(
             state.parsed_summary, source_blockers=source_blockers
         )
-        member_names = [m.name for m in state.sanitized_updates.members]
+        member_names = [m.name for m in members]
 
         ok, det_issues = deterministic_validate(
-            summary, member_names, source_blockers=source_blockers
+            summary,
+            member_names,
+            source_blockers=source_blockers,
+            source_yesterday=source_yesterday,
+            source_today=source_today,
         )
         if not ok:
             logger.warning("validator_deterministic_reject", issues=det_issues)

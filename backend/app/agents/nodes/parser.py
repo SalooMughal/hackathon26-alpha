@@ -38,10 +38,16 @@ async def parser_node(state: GraphState | dict) -> dict:
         try:
             payload = json.loads(_extract_json(raw))
             summary = StandupSummary.model_validate(payload)
-            from app.agents.validate_deterministic import normalize_standup_summary
+            from app.agents.validate_deterministic import (
+                merge_summary_with_source_fields,
+                normalize_standup_summary,
+            )
 
             source_blockers = None
             if state.sanitized_updates:
+                summary = merge_summary_with_source_fields(
+                    summary, state.sanitized_updates.members
+                )
                 source_blockers = {
                     m.name: m.blockers for m in state.sanitized_updates.members
                 }
