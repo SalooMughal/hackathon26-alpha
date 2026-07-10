@@ -5,23 +5,21 @@ import { MemberCard } from "./MemberCard";
 
 interface StandupFormProps {
   drafts: MemberDraft[];
+  readyCount: number;
   onChange: (
-    memberId: number,
+    memberId: string,
     field: "yesterday" | "today" | "blockers",
     value: string,
   ) => void;
-  onSave: (memberId: number) => void;
+  onSave: (memberId: string) => void;
 }
 
-export function StandupForm({ drafts, onChange, onSave }: StandupFormProps) {
-  const ready = drafts.filter(
-    (d) =>
-      d.yesterday.trim() &&
-      d.today.trim() &&
-      d.blockers.trim() &&
-      !d.dirty,
-  ).length;
-
+export function StandupForm({
+  drafts,
+  readyCount,
+  onChange,
+  onSave,
+}: StandupFormProps) {
   return (
     <section className="flex flex-col gap-5" aria-label="Team standup forms">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -34,7 +32,7 @@ export function StandupForm({ drafts, onChange, onSave }: StandupFormProps) {
           </h2>
           <p className="mt-1 max-w-lg text-[14px] text-[var(--ink-muted)]">
             Each teammate fills Yesterday, Today, and Blockers — then generate
-            one Slack-ready summary.
+            one Slack-ready summary via LangChain.
           </p>
         </div>
         <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 shadow-sm">
@@ -42,7 +40,7 @@ export function StandupForm({ drafts, onChange, onSave }: StandupFormProps) {
             Saved & ready
           </p>
           <p className="text-lg font-bold tabular-nums text-[var(--ink)]">
-            {ready}
+            {readyCount}
             <span className="text-sm font-medium text-[var(--ink-faint)]">
               /{drafts.length}
             </span>

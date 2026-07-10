@@ -30,7 +30,7 @@ class Settings(BaseSettings):
 
     LOG_LEVEL: str = "INFO"
     ENVIRONMENT: Literal["development", "staging", "production"] = "development"
-    CORS_ORIGINS: str = Field(default="http://localhost:5173")
+    CORS_ORIGINS: str = Field(default="http://localhost:3000,http://localhost:5173")
 
     @field_validator("DATABASE_URL")
     @classmethod

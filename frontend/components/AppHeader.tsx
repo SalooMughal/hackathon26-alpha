@@ -6,6 +6,8 @@ interface AppHeaderProps {
   sessionDate: string | null;
   status: "draft" | "summarized" | null;
   mockMode: boolean;
+  apiConnected: boolean;
+  dbOk: boolean;
   complete: number;
   total: number;
 }
@@ -14,6 +16,8 @@ export function AppHeader({
   sessionDate,
   status,
   mockMode,
+  apiConnected,
+  dbOk,
   complete,
   total,
 }: AppHeaderProps) {
@@ -68,7 +72,14 @@ export function AppHeader({
 
           <span className="hidden h-5 w-px bg-[var(--border)] md:block" />
 
-          {mockMode ? <StatusBadge label="Demo" tone="warning" /> : null}
+          {mockMode ? (
+            <StatusBadge label="Demo" tone="warning" />
+          ) : apiConnected ? (
+            <StatusBadge
+              label={dbOk ? "Live" : "API only"}
+              tone={dbOk ? "success" : "warning"}
+            />
+          ) : null}
           <StatusBadge label={dateLabel} tone="neutral" />
           {status ? (
             <StatusBadge

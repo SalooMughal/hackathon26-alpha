@@ -2,19 +2,27 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  buildDraftsFromWorkspace,
+  checkHealth,
+  createSummary,
+  getSummary,
   getTeam,
-  getTodaySession,
+  getUpdates,
   isMockMode,
-  summarize,
+  loadStoredSummaryId,
+  storeSummaryId,
   updateEntry,
 } from "@/lib/api";
-import { HARDCODED_TEAM } from "@/lib/mock-data";
-import type { MemberDraft, StandupSummary } from "@/lib/types";
-import { ApiError } from "@/lib/types";
+import {
+  apiErrorToastMessage,
+} from "@/lib/api-errors";
+import { ApiError, type MemberDraft, type SummaryState } from "@/lib/types";
 import {
   areAllEntriesComplete,
   completionCount,
-  hasUnsavedChanges,
+  incompleteMemberNames,
+  normalizeBlockers,
+  savedReadyCount,
   validateEntry,
 } from "@/lib/validation";
 import { AppHeader } from "@/components/AppHeader";
@@ -24,12 +32,12 @@ import { Toast } from "@/components/Toast";
 import { Button } from "@/components/Button";
 
 export default function HomePage() {
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [sessionDate, setSessionDate] = useState<string | null>(null);
-  const [status, setStatus] = useState<"draft" | "summarized" | null>(null);
+  const [standupDate, setStandupDate] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<MemberDraft[]>([]);
-  const [summary, setSummary] = useState<StandupSummary | null>(null);
+  const [summary, setSummary] = useState<SummaryState | null>(null);
   const [mockMode, setMockMode] = useState(false);
+  const [apiConnected, setApiConnected] = useState(false);
+  const [dbOk, setDbOk] = useState(false);
   const [loadingPage, setLoadingPage] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState(false);
@@ -52,36 +60,44 @@ export default function HomePage() {
   const load = useCallback(async () => {
     setLoadingPage(true);
     setPageError(null);
-    try {
-      const [team, session] = await Promise.all([
-        getTeam(),
-        getTodaySession(),
-      ]);
-      setMockMode(isMockMode());
-      setSessionId(session.session.id);
-      setSessionDate(session.session.session_date);
-      setStatus(session.session.status);
-      setSummary(session.summary);
 
-      const members = team.length ? team : HARDCODED_TEAM;
-      const nextDrafts: MemberDraft[] = members
-        .slice()
-        .sort((a, b) => a.display_order - b.display_order)
-        .map((member) => {
-          const entry = session.entries.find((e) => e.member_id === member.id);
-          return {
-            member_id: member.id,
-            member_name: member.name,
-            yesterday: entry?.yesterday ?? "",
-            today: entry?.today ?? "",
-            blockers: entry?.blockers ?? "",
-            dirty: false,
-            saving: false,
-            savedAt: entry?.updated_at ?? null,
-            errors: {},
-          };
-        });
-      setDrafts(nextDrafts);
+    try {
+      let healthOk = false;
+      try {
+        const health = await checkHealth();
+        healthOk = health.status === "ok";
+        setDbOk(health.db === "ok");
+      } catch {
+        healthOk = false;
+        setDbOk(false);
+      }
+
+      const [team, updatesRes] = await Promise.all([
+        getTeam(),
+        getUpdates(),
+      ]);
+
+      const usingMock = isMockMode();
+      setMockMode(usingMock);
+      setApiConnected(healthOk && !usingMock);
+      setStandupDate(updatesRes.standup_date);
+      setDrafts(buildDraftsFromWorkspace(team, updatesRes.updates));
+
+      if (!usingMock) {
+        const storedId = loadStoredSummaryId(updatesRes.standup_date);
+        if (storedId) {
+          try {
+            const existing = await getSummary(storedId);
+            setSummary(existing);
+          } catch {
+            setSummary(null);
+          }
+        } else {
+          setSummary(null);
+        }
+      } else {
+        setSummary(null);
+      }
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to load standup";
@@ -97,7 +113,7 @@ export default function HomePage() {
 
   const onChange = useCallback(
     (
-      memberId: number,
+      memberId: string,
       field: "yesterday" | "today" | "blockers",
       value: string,
     ) => {
@@ -119,9 +135,7 @@ export default function HomePage() {
   );
 
   const onSave = useCallback(
-    async (memberId: number) => {
-      if (!sessionId) return;
-
+    async (memberId: string) => {
       const draft = drafts.find((d) => d.member_id === memberId);
       if (!draft) return;
 
@@ -141,10 +155,11 @@ export default function HomePage() {
       );
 
       try {
-        const updated = await updateEntry(sessionId, memberId, {
+        const blockers = normalizeBlockers(draft.blockers);
+        const updated = await updateEntry(memberId, {
           yesterday: draft.yesterday.trim(),
           today: draft.today.trim(),
-          blockers: draft.blockers.trim(),
+          blockers,
         });
         setDrafts((prev) =>
           prev.map((d) =>
@@ -153,7 +168,7 @@ export default function HomePage() {
                   ...d,
                   yesterday: updated.yesterday,
                   today: updated.today,
-                  blockers: updated.blockers,
+                  blockers: normalizeBlockers(updated.blockers),
                   dirty: false,
                   saving: false,
                   savedAt: updated.updated_at,
@@ -162,9 +177,25 @@ export default function HomePage() {
               : d,
           ),
         );
-        setStatus("draft");
         showToast(`Saved ${draft.member_name}'s update`);
       } catch (err) {
+        if (err instanceof ApiError && err.code === "incomplete_update") {
+          setDrafts((prev) =>
+            prev.map((d) =>
+              d.member_id === memberId
+                ? {
+                    ...d,
+                    saving: false,
+                    dirty: true,
+                    errors: err.fieldErrors ?? {},
+                  }
+                : d,
+            ),
+          );
+          showToast(apiErrorToastMessage(err.message), "error");
+          return;
+        }
+
         setDrafts((prev) =>
           prev.map((d) =>
             d.member_id === memberId ? { ...d, saving: false } : d,
@@ -175,26 +206,55 @@ export default function HomePage() {
         showToast(message, "error");
       }
     },
-    [drafts, sessionId, showToast],
+    [drafts, showToast],
+  );
+
+  const persistAllDrafts = useCallback(
+    async (entries: MemberDraft[]): Promise<MemberDraft[]> => {
+      const saved: MemberDraft[] = [];
+      for (const draft of entries) {
+        const blockers = normalizeBlockers(draft.blockers);
+        const updated = await updateEntry(draft.member_id, {
+          yesterday: draft.yesterday.trim(),
+          today: draft.today.trim(),
+          blockers,
+        });
+        saved.push({
+          ...draft,
+          yesterday: updated.yesterday,
+          today: updated.today,
+          blockers: normalizeBlockers(updated.blockers),
+          dirty: false,
+          saving: false,
+          savedAt: updated.updated_at,
+          errors: {},
+        });
+      }
+      return saved;
+    },
+    [],
   );
 
   const onGenerate = useCallback(async () => {
-    if (!sessionId) return;
-
     const validated = drafts.map((d) => ({
       ...d,
-      errors: validateEntry(d),
+      blockers: normalizeBlockers(d.blockers),
+      errors: validateEntry({
+        yesterday: d.yesterday,
+        today: d.today,
+        blockers: normalizeBlockers(d.blockers),
+      }),
     }));
     setDrafts(validated);
 
+    const missing = incompleteMemberNames(validated);
     if (!areAllEntriesComplete(validated)) {
-      setSummaryError("Fill all fields for every teammate before summarizing.");
+      const detail =
+        missing.length > 0
+          ? `Still incomplete: ${missing.join(", ")}`
+          : "Fill all fields for every teammate before summarizing.";
+      setSummaryError(detail);
       showToast("Complete all teammate fields", "error");
-      return;
-    }
-
-    if (hasUnsavedChanges(validated)) {
-      showToast("Save all cards first", "error");
       return;
     }
 
@@ -202,19 +262,37 @@ export default function HomePage() {
     setSummaryError(null);
 
     try {
-      const result = await summarize(sessionId);
-      setSummary({
-        content: result.content,
-        version: result.version,
-        model: result.model,
-        created_at: new Date().toISOString(),
-      });
-      setStatus("summarized");
+      const saved = await persistAllDrafts(validated);
+      setDrafts(saved);
+
+      const result = await createSummary(standupDate ?? undefined);
+      setSummary(result);
+      if (standupDate) {
+        storeSummaryId(standupDate, result.summaryId);
+      }
       showToast(
         summary ? "Summary regenerated" : "Summary generated",
-        "success",
+        result.status === "degraded" ? "info" : "success",
       );
     } catch (err) {
+      if (err instanceof ApiError && err.code === "incomplete_update" && err.memberId) {
+        setDrafts((prev) =>
+          prev.map((d) =>
+            d.member_id === err.memberId
+              ? {
+                  ...d,
+                  saving: false,
+                  dirty: true,
+                  errors: err.fieldErrors ?? {},
+                }
+              : d,
+          ),
+        );
+        setSummaryError(apiErrorToastMessage(err.message));
+        showToast(apiErrorToastMessage(err.message), "error");
+        return;
+      }
+
       const message =
         err instanceof ApiError
           ? err.message
@@ -224,7 +302,7 @@ export default function HomePage() {
     } finally {
       setSummarizing(false);
     }
-  }, [drafts, sessionId, showToast, summary]);
+  }, [drafts, persistAllDrafts, standupDate, showToast, summary]);
 
   const onCopy = useCallback(async () => {
     if (!summary?.content) return;
@@ -244,12 +322,15 @@ export default function HomePage() {
   );
 
   const canGenerate = areAllEntriesComplete(drafts) && drafts.length > 0;
-  const hasUnsaved = hasUnsavedChanges(drafts);
+  const hasUnsaved = drafts.some((d) => d.dirty);
+  const { ready } = useMemo(() => savedReadyCount(drafts), [drafts]);
+  const workspaceStatus = summary ? "summarized" : "draft";
 
   const summaryProps = {
     content: summary?.content ?? null,
     version: summary?.version ?? null,
     model: summary?.model ?? null,
+    status: summary?.status ?? null,
     loading: summarizing,
     error: summaryError,
     canGenerate,
@@ -292,9 +373,11 @@ export default function HomePage() {
   return (
     <div className="app-shell">
       <AppHeader
-        sessionDate={sessionDate}
-        status={status}
+        sessionDate={standupDate}
+        status={workspaceStatus}
         mockMode={mockMode}
+        apiConnected={apiConnected}
+        dbOk={dbOk}
         complete={complete}
         total={total}
       />
@@ -304,6 +387,7 @@ export default function HomePage() {
           <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-7">
             <StandupForm
               drafts={drafts}
+              readyCount={ready}
               onChange={onChange}
               onSave={onSave}
             />
@@ -314,7 +398,13 @@ export default function HomePage() {
 
             <p className="mt-10 pb-6 text-center text-[11px] text-[var(--ink-faint)]">
               Team Alpha · StandupBot ·{" "}
-              {mockMode ? "Demo data" : "Connected to API"}
+              {mockMode
+                ? "Demo mode"
+                : apiConnected
+                  ? dbOk
+                    ? "API + DB connected"
+                    : "API connected · DB unavailable"
+                  : "API unreachable"}
             </p>
           </div>
         </div>

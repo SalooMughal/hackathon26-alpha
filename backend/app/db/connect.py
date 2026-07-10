@@ -1,4 +1,6 @@
 import ssl
+
+import certifi
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 # Neon adds these; asyncpg uses connect_args SSL instead.
@@ -24,6 +26,7 @@ def normalize_database_url(url: str) -> str:
 def connect_args(database_url: str) -> dict:
     """asyncpg SSL via connect_args (never sslmode in the URL)."""
     if database_url.startswith("postgresql+asyncpg://"):
-        ctx = ssl.create_default_context()
+        # macOS python.org builds often lack system CA certs; certifi fixes Neon SSL.
+        ctx = ssl.create_default_context(cafile=certifi.where())
         return {"ssl": ctx}
     return {}

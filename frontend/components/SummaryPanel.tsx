@@ -7,6 +7,7 @@ interface SummaryPanelProps {
   content: string | null;
   version: number | null;
   model: string | null;
+  status: "validated" | "degraded" | null;
   loading: boolean;
   error: string | null;
   canGenerate: boolean;
@@ -22,6 +23,7 @@ export function SummaryPanel({
   content,
   version,
   model,
+  status,
   loading,
   error,
   canGenerate,
@@ -40,20 +42,24 @@ export function SummaryPanel({
           : "min-h-[520px] overflow-hidden rounded-2xl border border-[var(--border)] shadow-[0_8px_28px_rgba(11,31,51,0.08)]"
       }`}
     >
-      {/* Compact header + actions — keep summary area large */}
       <div className="shrink-0 border-b border-[var(--border)] px-4 py-3 sm:px-5">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-[15px] font-bold tracking-tight text-[var(--ink)]">
                 AI summary
               </h2>
               {version != null ? (
                 <StatusBadge label={`v${version}`} tone="accent" />
               ) : null}
+              {status === "degraded" ? (
+                <StatusBadge label="Degraded" tone="warning" />
+              ) : status === "validated" ? (
+                <StatusBadge label="Validated" tone="success" />
+              ) : null}
             </div>
             <p className="truncate text-xs text-[var(--ink-muted)]">
-              Slack-ready digest
+              LangChain · Slack-ready digest
               {model ? ` · ${model}` : ""}
             </p>
           </div>
@@ -64,7 +70,7 @@ export function SummaryPanel({
             size="md"
             className="min-w-0 flex-1"
             loading={loading}
-            disabled={!canGenerate || loading || hasUnsaved}
+            disabled={!canGenerate || loading}
             onClick={onGenerate}
           >
             {hasSummary ? "Regenerate" : "Generate"}
@@ -81,8 +87,8 @@ export function SummaryPanel({
         </div>
 
         {hasUnsaved ? (
-          <p className="mt-2 text-center text-xs font-medium text-[var(--warning)]">
-            Save all member cards first
+          <p className="mt-2 text-center text-xs font-medium text-[var(--ink-muted)]">
+            Unsaved edits will be saved automatically when you generate
           </p>
         ) : !canGenerate && !loading ? (
           <p className="mt-2 text-center text-xs text-[var(--ink-muted)]">
@@ -91,7 +97,6 @@ export function SummaryPanel({
         ) : null}
       </div>
 
-      {/* Primary reading surface — takes remaining height */}
       <div className="summary-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5">
         {loading ? (
           <LoadingState />
@@ -145,7 +150,7 @@ function LoadingState() {
       <div className="text-center">
         <p className="font-bold text-[var(--ink)]">Generating with AI…</p>
         <p className="mt-1 text-[13px] text-[var(--ink-muted)]">
-          Synthesizing Done, Doing & Blockers
+          LangGraph pipeline · synthesizing Done, Doing & Blockers
         </p>
       </div>
     </div>

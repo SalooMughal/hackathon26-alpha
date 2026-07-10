@@ -3,25 +3,26 @@
 import type { ReactNode } from "react";
 import { memberColor } from "@/lib/mock-data";
 import type { MemberDraft } from "@/lib/types";
+import { isDraftReady } from "@/lib/validation";
 import { Button } from "./Button";
 import { TextAreaField } from "./TextAreaField";
 
-const ROLE_BY_MEMBER: Record<number, string> = {
-  1: "Lead · Integration",
-  2: "Backend · FastAPI",
-  3: "Frontend · Next.js",
-  4: "Data · Schema & prompts",
+const ROLE_BY_MEMBER: Record<string, string> = {
+  Shahryar: "Lead · Integration",
+  Sabir: "Backend · FastAPI",
+  Asad: "Frontend · Next.js",
+  Zaha: "Data · Schema & prompts",
 };
 
 interface MemberCardProps {
   draft: MemberDraft;
   index: number;
   onChange: (
-    memberId: number,
+    memberId: string,
     field: "yesterday" | "today" | "blockers",
     value: string,
   ) => void;
-  onSave: (memberId: number) => void;
+  onSave: (memberId: string) => void;
 }
 
 export function MemberCard({
@@ -30,35 +31,23 @@ export function MemberCard({
   onChange,
   onSave,
 }: MemberCardProps) {
-  const color = memberColor(draft.member_id);
+  const color = memberColor(draft.member_name);
   const initial = draft.member_name.charAt(0).toUpperCase();
-  const role = ROLE_BY_MEMBER[draft.member_id] ?? "Team member";
+  const role = ROLE_BY_MEMBER[draft.member_name] ?? "Team member";
 
-  const filledCount = [
-    draft.yesterday.trim(),
-    draft.today.trim(),
-    draft.blockers.trim(),
-  ].filter(Boolean).length;
-
-  const isComplete =
-    filledCount === 3 &&
-    !draft.errors.yesterday &&
-    !draft.errors.today &&
-    !draft.errors.blockers;
+  const isComplete = isDraftReady(draft);
 
   return (
     <article
       className="member-card group relative overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_1px_2px_rgba(11,31,51,0.04),0_8px_24px_rgba(11,31,51,0.05)] transition-all duration-300 hover:-translate-y-0.5 hover:border-[var(--border-strong)] hover:shadow-[0_8px_28px_rgba(11,31,51,0.1)]"
       style={{ animationDelay: `${index * 70}ms` }}
     >
-      {/* Color rail */}
       <div
         className="absolute inset-y-0 left-0 w-1.5"
         style={{ background: color }}
         aria-hidden
       />
 
-      {/* Header */}
       <div className="flex items-center justify-between gap-4 border-b border-[var(--border)] bg-gradient-to-r from-[var(--surface-muted)]/80 to-transparent py-4 pl-6 pr-4 sm:pl-7 sm:pr-5">
         <div className="flex min-w-0 items-center gap-3.5">
           <div className="relative shrink-0">
@@ -101,7 +90,15 @@ export function MemberCard({
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center sm:gap-3">
-          <FieldProgress filled={filledCount} />
+          <FieldProgress
+            filled={
+              [
+                draft.yesterday.trim(),
+                draft.today.trim(),
+                draft.blockers.trim() || "None",
+              ].filter(Boolean).length
+            }
+          />
           <div className="flex items-center gap-2.5">
             <span className="hidden text-xs text-[var(--ink-faint)] lg:inline">
               {draft.dirty
@@ -123,7 +120,6 @@ export function MemberCard({
         </div>
       </div>
 
-      {/* Fields */}
       <div className="grid gap-3 p-4 sm:grid-cols-3 sm:gap-3 sm:p-5 sm:pl-7">
         <FieldZone tone="yesterday">
           <TextAreaField
@@ -274,10 +270,7 @@ function IconCheck() {
 function IconBolt() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M13 2L4 14h7l-1 8 10-14h-7l0-6z"
-        fill="currentColor"
-      />
+      <path d="M13 2L4 14h7l-1 8 10-14h-7l0-6z" fill="currentColor" />
     </svg>
   );
 }

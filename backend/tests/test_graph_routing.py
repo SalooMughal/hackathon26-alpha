@@ -145,16 +145,32 @@ async def test_revision_cap_fallback():
     async def fake_summarizer(state):
         return {"raw_summary_output": "broken", "parsed_summary": None}
 
+    concise = StandupSummary(
+        tldr="Sabir is blocked on API key.",
+        done=[PersonItems(person="Sabir", items=["Built FastAPI routes"])],
+        doing=[PersonItems(person="Sabir", items=["Testing summary endpoint"])],
+        blockers=[Blocker(person="Sabir", item="Need key", severity="high")],
+    )
+
+    async def fake_compress(state):
+        return {
+            "parsed_summary": concise,
+            "validation": ValidationResult(approved=True, issues=[]),
+            "status": "validated",
+        }
+
     with patch("app.agents.graph.sanitizer_node", AsyncMock(return_value={"sanitized_updates": _sanitized()})), patch(
         "app.agents.graph.planner_node", AsyncMock(return_value={"plan": _plan()})
-    ), patch("app.agents.graph.summarizer_node", fake_summarizer):
+    ), patch("app.agents.graph.summarizer_node", fake_summarizer), patch(
+        "app.agents.graph.compressor_node", fake_compress
+    ):
         g = build_graph()
         final = await g.ainvoke(
             GraphState(standup_date="2026-07-10", raw_updates=[{"name": "Sabir"}]).model_dump(),
             config={"recursion_limit": 15},
         )
-    assert final["status"] == "degraded"
-    assert final["parsed_summary"] is not None
+    assert final["status"] == "validated"
+    assert final["parsed_summary"]["tldr"] == "Sabir is blocked on API key."
 
 
 @pytest.mark.asyncio
@@ -162,15 +178,24 @@ async def test_planner_exception_fallback():
     async def fake_planner(state):
         return {"status": "degraded", "error": "planner: boom"}
 
+    concise = _summary()
+
+    async def fake_compress(state):
+        return {
+            "parsed_summary": concise,
+            "validation": ValidationResult(approved=True, issues=[]),
+            "status": "validated",
+        }
+
     with patch("app.agents.graph.sanitizer_node", AsyncMock(return_value={"sanitized_updates": _sanitized()})), patch(
         "app.agents.graph.planner_node", fake_planner
-    ):
+    ), patch("app.agents.graph.compressor_node", fake_compress):
         g = build_graph()
         final = await g.ainvoke(
             GraphState(standup_date="2026-07-10", raw_updates=[{"name": "Sabir"}]).model_dump(),
             config={"recursion_limit": 15},
         )
-    assert final["status"] == "degraded"
+    assert final["status"] == "validated"
 
 
 @pytest.mark.asyncio
@@ -205,7 +230,18 @@ def test_route_after_parser_degraded():
         raw_updates=[],
         status="degraded",
     )
-    assert route_after_parser(state) == "fallback"
+    assert route_after_parser(state) == "compress"
+
+
+def test_route_after_validator_compress_when_revisions_exhausted():
+    state = GraphState(
+        standup_date="2026-07-10",
+        raw_updates=[],
+        revision_count=99,
+        parsed_summary=_summary(),
+        validation=ValidationResult(approved=False, issues=["too verbatim"]),
+    )
+    assert route_after_validator(state) == "compress"
 
 
 def test_route_after_validator_done():
